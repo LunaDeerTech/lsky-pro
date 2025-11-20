@@ -1,5 +1,11 @@
 @section('title', '图片管理')
 
+@push('styles')
+    <link rel="stylesheet" href="{{ asset('css/justified-gallery/justifiedGallery.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/viewer-js/viewer.min.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/context-js/context-js.css') }}">
+@endpush
+
 <x-app-layout>
     <div class="p-2">
         <form class="w-full flex items-center justify-center py-3 md:py-5 lg:py-7" action="{{ route('admin.images') }}" method="get">
@@ -11,10 +17,45 @@
             </div>
         </form>
 
+        <!-- 批量操作工具栏 -->
+        <div class="relative flex justify-between items-center px-2 py-2 mb-4 z-[3] bg-white border border-gray-200 rounded">
+            <div class="space-x-2 flex justify-between items-center">
+                <span id="selection-info" class="text-sm text-gray-600">选择图片进行批量操作</span>
+                <div class="flex-row hidden lg:flex">
+                    <a data-operate="permission" class="hidden text-sm py-2 px-3 hover:bg-gray-100 rounded text-gray-800" href="javascript:void(0)">设置权限</a>
+                    <a data-operate="unhealthy" class="hidden text-sm py-2 px-3 hover:bg-gray-100 rounded text-gray-800" href="javascript:void(0)">标记违规</a>
+                    <a data-operate="healthy" class="hidden text-sm py-2 px-3 hover:bg-gray-100 rounded text-gray-800" href="javascript:void(0)">取消违规</a>
+                    <a data-operate="delete" class="hidden text-sm py-2 px-3 hover:bg-gray-100 rounded text-red-600" href="javascript:void(0)">批量删除</a>
+                </div>
+                <div class="block lg:hidden">
+                    <x-dropdown direction="right">
+                        <x-slot name="trigger">
+                            <a class="text-sm py-2 px-3 hover:bg-gray-100 rounded text-gray-800" href="javascript:void(0)"><i class="fas fa-ellipsis-h text-blue-500"></i></a>
+                        </x-slot>
+                        <x-slot name="content">
+                            <x-dropdown-link data-operate="permission" class="hidden" href="javascript:void(0)" @click="open = false">设置权限</x-dropdown-link>
+                            <x-dropdown-link data-operate="unhealthy" class="hidden" href="javascript:void(0)" @click="open = false">标记违规</x-dropdown-link>
+                            <x-dropdown-link data-operate="healthy" class="hidden" href="javascript:void(0)" @click="open = false">取消违规</x-dropdown-link>
+                            <x-dropdown-link data-operate="delete" class="hidden" href="javascript:void(0)" @click="open = false">批量删除</x-dropdown-link>
+                        </x-slot>
+                    </x-dropdown>
+                </div>
+            </div>
+            <div class="flex space-x-2 items-center">
+                <a id="select-all" class="text-sm py-1 px-2 bg-blue-500 text-white rounded hover:bg-blue-600" href="javascript:void(0)">全选</a>
+                <a id="clear-selection" class="text-sm py-1 px-2 bg-gray-500 text-white rounded hover:bg-gray-600" href="javascript:void(0)">清空</a>
+            </div>
+        </div>
+
         @if($images->isNotEmpty())
-            <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2">
+            <div id="images-container" class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2 dragselect">
                 @foreach($images as $image)
-                <div data-json='{{ $image->toJson() }}' class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group">
+                <div data-json='{{ $image->toJson() }}' class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group dragselect-item" data-id="{{ $image->id }}">
+                    <div class="image-selector absolute z-[2] top-1 left-1 overflow-hidden cursor-pointer hidden group-hover:block">
+                        <div class="p-1 text-xl">
+                            <i class="fas fa-check-circle block rounded-full bg-white text-white border border-gray-500"></i>
+                        </div>
+                    </div>
                     <div class="flex absolute top-1 left-1 z-[1] space-x-1">
                         @if($image->is_unhealthy)
                             <span class="bg-red-500 text-white rounded-md text-sm px-1 py-0">违规</span>
@@ -25,8 +66,8 @@
                     </div>
                     <img class="w-full h-36 object-cover transition-all group-hover:brightness-50" src="{{ $image->thumb_url }}">
 
-                    <div class="absolute top-2 right-2 space-x-1 hidden group-hover:flex">
-                        <i data-id="{{ $image->id }}" class="delete fas fa-trash text-red-500 w-4 h-4"></i>
+                    <div class="absolute top-1 right-1 space-x-1 hidden group-hover:flex">
+                        <i data-id="{{ $image->id }}" class="delete fas fa-trash text-red-500 w-4 h-4 bg-white rounded p-1"></i>
                     </div>
 
                     <div class="p-2 bg-white w-full flex items-center">
@@ -319,8 +360,346 @@
     </script>
 
 @push('scripts')
+        <script src="{{ asset('js/dragselect/ds.min.js') }}"></script>
+        <script src="{{ asset('js/context-js/context-js.js') }}"></script>
         <script>
             let modal = Alpine.store('modal');
+
+            // 拖拽选择相关变量
+            const IMAGES_CONTAINER = '#images-container';
+            const IMAGES_ITEM = '.dragselect-item';
+            let ds = null;
+
+            // 初始化拖拽选择
+            function initDragSelect() {
+                if ($(IMAGES_CONTAINER).length && $(IMAGES_ITEM).length) {
+                    ds = new DragSelect({
+                        area: $(IMAGES_CONTAINER).get(0),
+                        keyboardDrag: false,
+                    });
+
+                    ds.subscribe('elementselect', _ => updateSelection());
+                    ds.subscribe('elementunselect', _ => updateSelection());
+                    ds.subscribe('predragstart', ({ event }) => {
+                        if (!$(event.target).hasClass('dragselect') && !$(event.target).closest('.dragselect-item').length) {
+                            ds.break();
+                        }
+                    });
+
+                    // 点击选择器图标进行单选
+                    $(document).off('click', '.image-selector').on('click', '.image-selector', function(e) {
+                        e.stopPropagation();
+                        ds.toggleSelection($(this).closest('.dragselect-item'));
+                        updateSelection();
+                    });
+                }
+            }
+
+            // 更新选择状态显示
+            function updateSelection() {
+                if (!ds) return;
+                
+                let selected = ds.getSelection();
+                let count = selected.length;
+                
+                if (count > 0) {
+                    $('#selection-info').text(`已选择 ${count} 张图片`);
+                    // 显示对应的操作按钮
+                    $('[data-operate]').hide();
+                    if (count === 1) {
+                        $('[data-operate="permission"], [data-operate="unhealthy"], [data-operate="healthy"], [data-operate="delete"]').show();
+                    } else {
+                        $('[data-operate="permission"], [data-operate="unhealthy"], [data-operate="healthy"], [data-operate="delete"]').show();
+                    }
+                } else {
+                    $('#selection-info').text('选择图片进行批量操作');
+                    $('[data-operate]').hide();
+                }
+
+                // 更新选中样式
+                $(IMAGES_ITEM).removeClass('border-blue-500 border-2');
+                $(selected).addClass('border-blue-500 border-2');
+
+                // 更新选择器图标
+                $(IMAGES_ITEM).find('.image-selector i').removeClass('text-blue-500').addClass('text-gray-400');
+                $(selected).find('.image-selector i').removeClass('text-gray-400').addClass('text-blue-500');
+            }
+
+            // 全选
+            $('#select-all').click(function() {
+                if (ds) {
+                    ds.setSelection($(IMAGES_ITEM));
+                    updateSelection();
+                }
+            });
+
+            // 清空选择
+            $('#clear-selection').click(function() {
+                if (ds) {
+                    ds.clearSelection();
+                    updateSelection();
+                }
+            });
+
+            // 批量操作方法
+            const batchMethods = {
+                permission() {
+                    let selected = ds.getSelection().map(item => $(item).data('id'));
+                    if (selected.length === 0) {
+                        toastr.warning('请先选择图片');
+                        return;
+                    }
+                    
+                    Swal.fire({
+                        title: '设置权限',
+                        input: 'select',
+                        inputOptions: {
+                            '1': '公开',
+                            '2': '私有'
+                        },
+                        inputPlaceholder: '选择权限类型',
+                        showCancelButton: true,
+                        confirmButtonText: '确认',
+                        cancelButtonText: '取消',
+                        inputValidator: (value) => {
+                            if (!value) {
+                                return '请选择权限类型'
+                            }
+                        }
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            axios.put('/admin/images/batch-permission', {
+                                ids: selected,
+                                permission: result.value
+                            }).then(response => {
+                                if (response.data.status) {
+                                    toastr.success(response.data.message);
+                                    setTimeout(() => location.reload(), 1000);
+                                } else {
+                                    toastr.error(response.data.message);
+                                }
+                            });
+                        }
+                    });
+                },
+                unhealthy() {
+                    let selected = ds.getSelection().map(item => $(item).data('id'));
+                    if (selected.length === 0) {
+                        toastr.warning('请先选择图片');
+                        return;
+                    }
+                    
+                    Swal.fire({
+                        title: '确认标记为违规?',
+                        text: `将标记 ${selected.length} 张图片为违规内容`,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: '确认',
+                        cancelButtonText: '取消'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            axios.put('/admin/images/batch-unhealthy', {
+                                ids: selected,
+                                is_unhealthy: true
+                            }).then(response => {
+                                if (response.data.status) {
+                                    toastr.success(response.data.message);
+                                    setTimeout(() => location.reload(), 1000);
+                                } else {
+                                    toastr.error(response.data.message);
+                                }
+                            });
+                        }
+                    });
+                },
+                healthy() {
+                    let selected = ds.getSelection().map(item => $(item).data('id'));
+                    if (selected.length === 0) {
+                        toastr.warning('请先选择图片');
+                        return;
+                    }
+                    
+                    Swal.fire({
+                        title: '确认取消违规标记?',
+                        text: `将取消 ${selected.length} 张图片的违规标记`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: '确认',
+                        cancelButtonText: '取消'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            axios.put('/admin/images/batch-unhealthy', {
+                                ids: selected,
+                                is_unhealthy: false
+                            }).then(response => {
+                                if (response.data.status) {
+                                    toastr.success(response.data.message);
+                                    setTimeout(() => location.reload(), 1000);
+                                } else {
+                                    toastr.error(response.data.message);
+                                }
+                            });
+                        }
+                    });
+                },
+                delete() {
+                    let selected = ds.getSelection().map(item => $(item).data('id'));
+                    if (selected.length === 0) {
+                        toastr.warning('请先选择图片');
+                        return;
+                    }
+                    
+                    Swal.fire({
+                        title: '确认删除?',
+                        text: `将删除 ${selected.length} 张图片，包括记录与物理文件`,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: '确认删除',
+                        cancelButtonText: '取消',
+                        confirmButtonColor: '#d33'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            axios.post('/admin/images/batch-delete', {
+                                ids: selected
+                            }).then(response => {
+                                if (response.data.status) {
+                                    toastr.success(response.data.message);
+                                    setTimeout(() => location.reload(), 1000);
+                                } else {
+                                    toastr.error(response.data.message);
+                                }
+                            });
+                        }
+                    });
+                }
+            };
+
+            // 绑定批量操作按钮
+            $('[data-operate]').click(function() {
+                let operate = $(this).data('operate');
+                if (batchMethods[operate]) {
+                    batchMethods[operate]();
+                }
+            });
+
+            // 键盘快捷键
+            $(document).keydown(e => {
+                if (e.keyCode === 65 && (e.altKey || e.metaKey)) {
+                    e.preventDefault();
+                    if (ds) {
+                        ds.setSelection($(IMAGES_ITEM));
+                        updateSelection();
+                    }
+                }
+            });
+
+            // 页面加载完成后初始化
+            $(document).ready(function() {
+                initDragSelect();
+                initContextMenu();
+            });
+
+            // 初始化右键菜单
+            function initContextMenu() {
+                context.init({
+                    fadeSpeed: 100,
+                    filter: function ($obj) {},
+                    above: 'auto',
+                    preventDoubleContext: true,
+                    compress: false
+                });
+
+                // 右键菜单操作
+                const contextActions = {
+                    detail: {
+                        text: '查看详情',
+                        action: function(item) {
+                            $(item).trigger('click');
+                        },
+                        visible: () => ds && ds.getSelection().length === 1
+                    },
+                    permission: {
+                        text: '设置权限',
+                        action: () => batchMethods.permission(),
+                        visible: () => ds && ds.getSelection().length >= 1
+                    },
+                    unhealthy: {
+                        text: '标记违规',
+                        action: () => batchMethods.unhealthy(),
+                        visible: () => ds && ds.getSelection().length >= 1
+                    },
+                    healthy: {
+                        text: '取消违规',
+                        action: () => batchMethods.healthy(),
+                        visible: () => ds && ds.getSelection().length >= 1
+                    },
+                    delete: {
+                        text: '删除',
+                        action: () => batchMethods.delete(),
+                        visible: () => ds && ds.getSelection().length >= 1
+                    },
+                    selectAll: {
+                        text: '全选',
+                        action: function() {
+                            if (ds) {
+                                ds.setSelection($(IMAGES_ITEM));
+                                updateSelection();
+                            }
+                        },
+                        visible: () => true
+                    },
+                    clearSelection: {
+                        text: '清空选择',
+                        action: function() {
+                            if (ds) {
+                                ds.clearSelection();
+                                updateSelection();
+                            }
+                        },
+                        visible: () => ds && ds.getSelection().length > 0
+                    }
+                };
+
+                // 绑定容器右键菜单
+                context.attach(IMAGES_CONTAINER, {
+                    data: [
+                        contextActions.selectAll,
+                        contextActions.clearSelection
+                    ],
+                    beforeOpen: function() {
+                        if (ds) {
+                            ds.clearSelection();
+                            updateSelection();
+                        }
+                    }
+                });
+
+                // 绑定图片项右键菜单
+                context.attach(IMAGES_ITEM, {
+                    data: [
+                        {header: '图片操作'},
+                        contextActions.detail,
+                        contextActions.permission,
+                        contextActions.unhealthy,
+                        contextActions.healthy,
+                        {divider: true},
+                        contextActions.delete,
+                        {divider: true},
+                        contextActions.selectAll,
+                        contextActions.clearSelection
+                    ],
+                    beforeOpen: function (item) {
+                        // 如果当前项目未被选中，则选中它
+                        if (ds && ds.getSelection().indexOf(item) === -1) {
+                            if (ds.getSelection().length <= 1) {
+                                ds.clearSelection();
+                            }
+                            ds.addSelection($(item));
+                            updateSelection();
+                        }
+                    }
+                });
+            }
 
             function del(id) {
                 Swal.fire({
