@@ -17,6 +17,27 @@
             </div>
         </form>
 
+        <!-- 批量操作控制栏 -->
+        <div id="batch-control" class="hidden mb-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm font-medium text-blue-800">已选择 <span id="selected-count">0</span> 张图片</span>
+                    <button type="button" id="select-all" class="text-xs text-blue-600 hover:text-blue-800 font-medium">全选</button>
+                    <button type="button" id="select-none" class="text-xs text-blue-600 hover:text-blue-800">取消全选</button>
+                    <button type="button" id="select-reverse" class="text-xs text-blue-600 hover:text-blue-800">反选</button>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button type="button" id="batch-delete" class="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 transition-colors flex items-center space-x-1">
+                        <span>批量删除</span>
+                    </button>
+                    <button type="button" id="batch-cancel" class="px-3 py-1 bg-gray-300 text-gray-700 text-sm rounded hover:bg-gray-400 transition-colors">取消批量</button>
+                </div>
+            </div>
+            <div class="mt-2 text-xs text-gray-600">
+                提示：点击图片可切换选中，Ctrl+点击可多选，Delete键删除，Esc退出批量模式
+            </div>
+        </div>
+
         <!-- 批量操作工具栏 -->
         <div class="relative flex justify-between items-center px-2 py-2 mb-4 z-[3] bg-white border border-gray-200 rounded">
             <div class="space-x-2 flex justify-between items-center">
@@ -48,8 +69,37 @@
         </div>
 
         @if($images->isNotEmpty())
+            <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2" id="image-grid">
             <div id="images-container" class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2 dragselect">
                 @foreach($images as $image)
+                <div data-json="{{ htmlspecialchars($image->toJson(), ENT_QUOTES, 'UTF-8') }}" data-id="{{ $image->id }}" class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group select-none">
+                    <!-- 批量选择复选框（左上角） -->
+                    <div class="batch-checkbox absolute top-1 left-1 z-[2] hidden group-hover:block">
+                        <input type="checkbox" class="image-checkbox w-4 h-4 cursor-pointer" data-id="{{ $image->id }}" />
+                    </div>
+                    <!-- 始终显示的复选框（当批量模式激活时，左上角） -->
+                    <div class="batch-checkbox-static absolute top-1 left-1 z-[2] hidden">
+                        <input type="checkbox" class="image-checkbox w-4 h-4 cursor-pointer" data-id="{{ $image->id }}" />
+                    </div>
+                    <!-- 状态标签和删除按钮区域 -->
+                    <div class="absolute top-1 right-1 z-[1] flex flex-col items-end space-y-1">
+                        <!-- 状态标签 -->
+                        <div class="flex space-x-1">
+                            @if($image->is_unhealthy)
+                                <span class="bg-red-500 text-white rounded-md text-sm px-1 py-0">违规</span>
+                            @endif
+                            @if($image->extension === 'gif')
+                                <span class="bg-white rounded-md text-sm px-1 py-0">Gif</span>
+                            @endif
+                        </div>
+                        <!-- 删除按钮（仅在悬停时显示） -->
+                        <div class="hidden group-hover:block">
+                            <i data-id="{{ $image->id }}" class="delete fas fa-trash text-red-500 w-4 h-4"></i>
+                        </div>
+                    </div>
+
+                    <div class="w-full h-36 relative">
+                        <img class="w-full h-full object-cover" src="{{ $image->thumb_url }}" alt="{{ $image->name }}" onerror="this.style.display='none'; this.parentElement.innerHTML='<div class=\'w-full h-full flex items-center justify-center bg-gray-100 text-gray-400\'>图片加载失败</div>'">
                 <div data-json='{{ $image->toJson() }}' class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group dragselect-item" data-id="{{ $image->id }}">
                     <div class="image-selector absolute z-[2] top-1 left-1 overflow-hidden cursor-pointer hidden group-hover:block">
                         <div class="p-1 text-xl">
@@ -730,7 +780,90 @@
                 modal.open('content-modal')
             });
 
-            $('.item').click(function () {
+            // 批量选择模式状态
+            let batchMode = false;
+            let selectedIds = new Set();
+
+            // 切换批量选择模式
+            function toggleBatchMode(enable) {
+                batchMode = enable;
+                if (enable) {
+                    $('#batch-control').removeClass('hidden');
+                    $('.batch-checkbox-static').removeClass('hidden');
+                    $('.batch-checkbox').addClass('hidden');
+                    
+                    // 同步静态复选框的状态
+                    $('.item').each(function () {
+                        let id = $(this).data('id');
+                        let isChecked = selectedIds.has(id);
+                        $(this).find('.batch-checkbox-static .image-checkbox').prop('checked', isChecked);
+                        
+                        // 应用视觉反馈
+                        let item = $(this);
+                        if (isChecked) {
+                            item.addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                            item.css('opacity', '0.8');
+                        } else {
+                            item.removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                            item.css('opacity', '1');
+                        }
+                    });
+                } else {
+                    $('#batch-control').addClass('hidden');
+                    $('.batch-checkbox-static').addClass('hidden');
+                    $('.batch-checkbox').removeClass('hidden');
+                    selectedIds.clear();
+                    $('.image-checkbox').prop('checked', false);
+                    // 清除所有视觉反馈
+                    $('.item').removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white').css('opacity', '1');
+                    updateSelectedCount();
+                }
+            }
+
+            // 更新选择数量显示
+            function updateSelectedCount() {
+                $('#selected-count').text(selectedIds.size);
+                if (selectedIds.size > 0) {
+                    $('#batch-control').removeClass('hidden');
+                }
+                
+                // 添加动画效果
+                if (selectedIds.size > 0) {
+                    $('#selected-count').addClass('animate-pulse');
+                    setTimeout(() => $('#selected-count').removeClass('animate-pulse'), 500);
+                }
+            }
+
+            // 点击图片项
+            $('.item').click(function (e) {
+                // 如果点击的是复选框，不执行此事件
+                if ($(e.target).is('input[type="checkbox"]')) {
+                    return;
+                }
+
+                // 如果批量模式开启，切换复选框状态
+                if (batchMode) {
+                    let checkbox = $(this).find('.image-checkbox');
+                    let wasChecked = checkbox.prop('checked');
+                    checkbox.prop('checked', !wasChecked);
+                    let id = $(this).data('id');
+                    let item = $(this);
+                    
+                    if (!wasChecked) {
+                        selectedIds.add(id);
+                        // 立即应用视觉反馈
+                        item.addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        item.css('opacity', '0.8');
+                    } else {
+                        selectedIds.delete(id);
+                        // 立即移除视觉反馈
+                        item.removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        item.css('opacity', '1');
+                    }
+                    updateSelectedCount();
+                    return;
+                }
+
                 let image = $(this).data('json');
                 let previewUrl = ['psd', 'tif'].indexOf(image.extension) === -1 ? image.url : image.thumb_url;
                 let html = $('#image-tpl').html()
@@ -781,14 +914,224 @@
                 modal.open('content-modal')
             });
 
+            // 复选框点击事件
+            $(document).on('change', '.image-checkbox', function (e) {
+                e.stopPropagation();
+                let id = $(this).data('id');
+                let isChecked = $(this).prop('checked');
+                let item = $(this).closest('.item');
+                
+                // 同步两个复选框的状态
+                let otherCheckbox = item.find('.image-checkbox').not(this);
+                otherCheckbox.prop('checked', isChecked);
+                
+                if (isChecked) {
+                    selectedIds.add(id);
+                    // 如果还没有开启批量模式，则开启
+                    if (!batchMode) {
+                        batchMode = true;
+                        $('#batch-control').removeClass('hidden');
+                        $('.batch-checkbox-static').removeClass('hidden');
+                        $('.batch-checkbox').addClass('hidden');
+                    }
+                    
+                    // 立即应用视觉反馈
+                    item.addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                    item.css('opacity', '0.8');
+                } else {
+                    selectedIds.delete(id);
+                    
+                    // 立即移除视觉反馈
+                    item.removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                    item.css('opacity', '1');
+                }
+                updateSelectedCount();
+            });
+
+            // 全选
+            $('#select-all').click(function () {
+                $('.image-checkbox').prop('checked', true);
+                selectedIds.clear();
+                $('.item').each(function () {
+                    let id = $(this).data('id');
+                    selectedIds.add(id);
+                    // 应用视觉反馈
+                    $(this).addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                    $(this).css('opacity', '0.8');
+                });
+                updateSelectedCount();
+            });
+
+            // 取消全选
+            $('#select-none').click(function () {
+                $('.image-checkbox').prop('checked', false);
+                selectedIds.clear();
+                // 移除所有视觉反馈
+                $('.item').removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white').css('opacity', '1');
+                updateSelectedCount();
+            });
+
+            // 反选
+            $('#select-reverse').click(function () {
+                $('.item').each(function () {
+                    let checkbox = $(this).find('.image-checkbox');
+                    let id = $(this).data('id');
+                    let wasChecked = checkbox.prop('checked');
+                    checkbox.prop('checked', !wasChecked);
+                    
+                    if (!wasChecked) {
+                        selectedIds.add(id);
+                        // 应用视觉反馈
+                        $(this).addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        $(this).css('opacity', '0.8');
+                    } else {
+                        selectedIds.delete(id);
+                        // 移除视觉反馈
+                        $(this).removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        $(this).css('opacity', '1');
+                    }
+                });
+                updateSelectedCount();
+            });
+
+            // 批量删除
+            $('#batch-delete').click(function () {
+                if (selectedIds.size === 0) {
+                    toastr.warning('请先选择要删除的图片');
+                    return;
+                }
+
+                Swal.fire({
+                    title: `确认删除选中的 ${selectedIds.size} 张图片吗?`,
+                    html: `记录与物理文件将会一起删除，此操作<b style="color: #dc2626">不可恢复</b>！<br><br>已选择图片数量：<b>${selectedIds.size}</b>`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: '确认删除',
+                    cancelButtonText: '取消',
+                    confirmButtonColor: '#dc2626',
+                    cancelButtonColor: '#6b7280',
+                    showLoaderOnConfirm: true,
+                    preConfirm: () => {
+                        // 显示加载状态
+                        Swal.showLoading();
+                        
+                        return axios.post('/admin/images/batch-delete', {
+                            ids: Array.from(selectedIds)
+                        }).then(response => {
+                            return response.data;
+                        }).catch(error => {
+                            Swal.showValidationMessage(
+                                error.response?.data?.message || '删除失败，请重试'
+                            );
+                        });
+                    },
+                    allowOutsideClick: () => !Swal.isLoading()
+                }).then((result) => {
+                    if (result.isConfirmed && result.value) {
+                        if (result.value.status) {
+                            toastr.success(result.value.message);
+                            setTimeout(function () {
+                                history.go(0);
+                            }, 1000);
+                        } else {
+                            toastr.error(result.value.message);
+                        }
+                    }
+                });
+            });
+
+            // 取消批量模式
+            $('#batch-cancel').click(function () {
+                toggleBatchMode(false);
+            });
+
+            // 右键点击开启批量模式
+            $('.item').contextmenu(function (e) {
+                e.preventDefault();
+                if (!batchMode) {
+                    toggleBatchMode(true);
+                    // 自动选中当前项
+                    let checkbox = $(this).find('.image-checkbox');
+                    checkbox.prop('checked', true);
+                    // 同步另一个复选框
+                    checkbox.closest('.item').find('.image-checkbox').prop('checked', true);
+                    let id = $(this).data('id');
+                    selectedIds.add(id);
+                    // 应用视觉反馈
+                    $(this).addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                    $(this).css('opacity', '0.8');
+                    updateSelectedCount();
+                }
+            });
+
+            // 键盘快捷键支持
+            $(document).keydown(function (e) {
+                // Ctrl + A 全选
+                if (e.ctrlKey && e.key === 'a') {
+                    e.preventDefault();
+                    if (!batchMode) {
+                        toggleBatchMode(true);
+                    }
+                    $('#select-all').click();
+                }
+                // Delete 键删除选中
+                if (e.key === 'Delete' && selectedIds.size > 0) {
+                    e.preventDefault();
+                    $('#batch-delete').click();
+                }
+                // Escape 键取消批量模式
+                if (e.key === 'Escape' && batchMode) {
+                    toggleBatchMode(false);
+                }
+            });
+
+            // Ctrl + 点击支持多选
+            $('.item').mousedown(function (e) {
+                if (e.ctrlKey && e.which === 1) { // 左键 + Ctrl
+                    e.preventDefault();
+                    if (!batchMode) {
+                        toggleBatchMode(true);
+                    }
+                    let checkbox = $(this).find('.image-checkbox');
+                    let wasChecked = checkbox.prop('checked');
+                    checkbox.prop('checked', !wasChecked);
+                    // 同步另一个复选框
+                    checkbox.closest('.item').find('.image-checkbox').prop('checked', !wasChecked);
+                    
+                    let id = $(this).data('id');
+                    let item = $(this);
+                    
+                    if (!wasChecked) {
+                        selectedIds.add(id);
+                        // 应用视觉反馈
+                        item.addClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        item.css('opacity', '0.8');
+                    } else {
+                        selectedIds.delete(id);
+                        // 移除视觉反馈
+                        item.removeClass('ring-2 ring-blue-500 ring-offset-2 ring-offset-white');
+                        item.css('opacity', '1');
+                    }
+                    updateSelectedCount();
+                    return false;
+                }
+            });
+
+            // 原有的单个删除功能（在非批量模式下保持可用）
             $('.item .delete').click(function (e) {
                 e.stopPropagation();
-                del($(this).data('id'));
+                if (!batchMode) {
+                    del($(this).data('id'));
+                }
             });
 
             $('#modal-content').on('click', '.delete', function (e) {
-                del($(this).data('id'));
+                if (!batchMode) {
+                    del($(this).data('id'));
+                }
             });
+
+
 
         </script>
     @endpush
