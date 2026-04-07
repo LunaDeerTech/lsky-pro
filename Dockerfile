@@ -41,7 +41,7 @@ RUN apt-get update \
         pdo_pgsql \
         pdo_sqlite \
         redis \
-    && a2enmod ssl default-ssl rewrite \
+    && a2enmod ssl rewrite \
     && make-ssl-cert generate-default-snakeoil --force-overwrite \
     && { \
         echo 'post_max_size=100M'; \
