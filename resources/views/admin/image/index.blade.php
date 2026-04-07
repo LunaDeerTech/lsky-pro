@@ -35,7 +35,7 @@
         @if($images->isNotEmpty())
             <div class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8 gap-2" id="image-grid">
                 @foreach($images as $image)
-                <div data-json="{{ htmlspecialchars($image->toJson(), ENT_QUOTES, 'UTF-8') }}" data-id="{{ $image->id }}" class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group select-none">
+                <div data-json='@json($image)' data-id="{{ $image->id }}" class="item relative flex flex-col items-center justify-center overflow-hidden rounded-md cursor-pointer group select-none">
                     <!-- 批量选择复选框（左上角） -->
                     <div class="batch-checkbox absolute top-1 left-1 z-[2] hidden group-hover:block">
                         <input type="checkbox" class="image-checkbox w-4 h-4 cursor-pointer" data-id="{{ $image->id }}" />

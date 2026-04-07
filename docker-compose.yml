@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /var/www/html
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      COMPOSER_HOME: /tmp/composer
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/var/www/html
+    command: php artisan serve --host=0.0.0.0 --port=8000

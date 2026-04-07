@@ -58,6 +58,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'configs->default_strategy',
         'registered_ip',
         'status',
+        'is_adminer',
     ];
 
     /**
