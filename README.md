@@ -59,6 +59,12 @@
 - putenv、getenv 函数
 - chmod、chown、fileperms 函数
 
+### 🐳 Docker 镜像
+- 仓库现在提供了与 `halcyonazure/lsky-pro-docker` 相同启动模型的生产镜像文件：Apache 单容器、默认监听 `8089/8088`、挂载目录为 `/var/www/html`、首次启动会自动把镜像内模板程序复制到挂载卷。
+- 本地部署示例文件为 `docker-compose.image.yml`，默认会把应用数据放在 `./web`，MySQL 数据放在 `./mysql`。
+- 生产镜像构建文件为 `Dockerfile`，启动入口为 `entrypoint.sh`，支持通过 `WEB_PORT` 和 `HTTPS_PORT` 覆盖容器内端口。
+- 当推送 Git tag 时，GitHub Actions 会自动构建多架构镜像并推送到 GitHub Container Registry，默认镜像名为 `ghcr.io/<仓库拥有者>/lsky-pro-docker`，同时发布对应 tag 与 `latest`。
+
 ### 😋 鸣谢
 - [Laravel](https://laravel.com)
 - [Tailwindcss](https://tailwindcss.com)
